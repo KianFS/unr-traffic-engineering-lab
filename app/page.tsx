@@ -113,6 +113,27 @@ function simulateBatch(
   return { summaries, lastVehicles, headwayBins, totalHeadways };
 }
 
+function makeVehicleHistogram(summaries: RunSummary[]) {
+  const counts = summaries.map((item) => item.vehicleCount);
+  if (!counts.length) return [];
+  const minimum = Math.min(...counts);
+  const maximum = Math.max(...counts);
+  const targetBins = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(counts.length))));
+  const width = Math.max(1, Math.ceil((maximum - minimum + 1) / targetBins));
+  const binCount = Math.floor((maximum - minimum) / width) + 1;
+  const bins = Array.from({ length: binCount }, (_, index) => ({
+    from: minimum + index * width,
+    to: Math.min(maximum, minimum + (index + 1) * width - 1),
+    count: 0,
+  }));
+
+  counts.forEach((count) => {
+    const index = Math.min(bins.length - 1, Math.floor((count - minimum) / width));
+    bins[index].count += 1;
+  });
+  return bins;
+}
+
 export default function Home() {
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
@@ -166,6 +187,8 @@ export default function Home() {
     const gridValues = Array.from({ length: 5 }, (_, index) => (yMaximum / 4) * index);
     return { left, plotWidth, baseline, slot, y, theoreticalPoints, gridValues };
   }, [batch.headwayBins]);
+  const vehicleHistogram = useMemo(() => makeVehicleHistogram(batch.summaries), [batch.summaries]);
+  const maximumVehicleFrequency = Math.max(1, ...vehicleHistogram.map((bin) => bin.count));
 
   const runSimulation = () => {
     const safeVolume = Math.min(5000, Math.max(1, Number(volume) || 1));
@@ -328,7 +351,6 @@ export default function Home() {
               </div>
               <div className="distributionActions">
                 <button type="button" onClick={downloadHeadwayCsv}>Chart data ↓</button>
-                <button type="button" onClick={downloadBatchCsv}>Run summary ↓</button>
               </div>
             </div>
             <div className="headwayLegend" aria-hidden="true">
@@ -382,6 +404,32 @@ export default function Home() {
               </svg>
             </div>
             <div className="chartCaption"><span>Orange bars: observed accepted headways</span><span>Acid line: expected exponential probabilities</span></div>
+          </div>
+
+          <div className="distributionCard secondaryDistribution">
+            <div className="distributionHeader">
+              <div>
+                <span>VEHICLE COUNT DISTRIBUTION — ALL RUNS</span>
+                <p>Run-to-run variation in the number of completed arrivals</p>
+              </div>
+              <div className="distributionActions">
+                <button type="button" onClick={downloadBatchCsv}>Run summary ↓</button>
+              </div>
+            </div>
+            <div className="vehicleHistogram" role="img" aria-label={`Histogram of vehicle counts from ${resultInputs.runs} simulation runs`}>
+              {vehicleHistogram.map((bin) => (
+                <div className="vehicleHistColumn" key={`${bin.from}-${bin.to}`}>
+                  <span className="vehicleHistFrequency">{bin.count} {bin.count === 1 ? "run" : "runs"}</span>
+                  <div className="vehicleHistTrack">
+                    <div className="vehicleHistBar" style={{ height: `${Math.max(5, (bin.count / maximumVehicleFrequency) * 100)}%` }}>
+                      <span>{bin.count}</span>
+                    </div>
+                  </div>
+                  <span className="vehicleHistLabel">{bin.from === bin.to ? bin.from : `${bin.from}–${bin.to}`}</span>
+                </div>
+              ))}
+            </div>
+            <div className="chartCaption"><span>Vehicle count per simulation run →</span><span>Bar height: number of runs</span></div>
           </div>
 
           <div className="roadCard" aria-label="Arrival timeline visualization">

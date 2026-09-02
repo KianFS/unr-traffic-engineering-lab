@@ -82,6 +82,16 @@ button { cursor:pointer; }
 .headwayBar:hover { opacity:.78; }
 .theoryLine { fill:none; stroke:#bed500; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
 .theoryPoint { fill:var(--acid); stroke:var(--ink); stroke-width:1.5; }
+.secondaryDistribution { margin-top:18px; }
+.vehicleHistogram { height:225px; padding:26px 28px 15px; display:flex; align-items:stretch; gap:clamp(7px,1.2vw,14px); border-bottom:1px solid #ddd9ce; background:linear-gradient(to top,transparent 24%,#e7e3d8 25%,transparent 25.5%,transparent 49%,#e7e3d8 50%,transparent 50.5%,transparent 74%,#e7e3d8 75%,transparent 75.5%); }
+.vehicleHistColumn { flex:1; min-width:0; display:grid; grid-template-rows:18px 1fr 28px; align-items:end; text-align:center; }
+.vehicleHistFrequency { color:var(--muted); font-family:var(--font-geist-mono),monospace; font-size:7px; align-self:start; opacity:0; transition:opacity .2s; white-space:nowrap; }
+.vehicleHistColumn:hover .vehicleHistFrequency { opacity:1; }
+.vehicleHistTrack { height:100%; min-height:0; display:flex; align-items:flex-end; }
+.vehicleHistBar { position:relative; width:100%; min-height:5px; background:var(--ink); border-top:5px solid var(--acid); transition:filter .2s,transform .2s; transform-origin:bottom; }
+.vehicleHistBar span { position:absolute; left:50%; top:7px; transform:translateX(-50%); color:var(--white); font-family:var(--font-geist-mono),monospace; font-size:8px; }
+.vehicleHistColumn:hover .vehicleHistBar { filter:brightness(1.18); transform:scaleY(1.015); }
+.vehicleHistLabel { margin-top:9px; overflow:hidden; color:var(--muted); font-family:var(--font-geist-mono),monospace; font-size:7px; white-space:nowrap; }
 .chartCaption { padding:10px 20px; display:flex; justify-content:space-between; color:var(--muted); font-family:var(--font-geist-mono),monospace; font-size:8px; text-transform:uppercase; letter-spacing:.06em; }
 .roadCard { margin-top:22px; border:1px solid var(--line); background:var(--white); }
 .roadHeader { padding:16px 20px; border-bottom:1px solid var(--line); font-family:var(--font-geist-mono),monospace; font-size:9px; font-weight:700; letter-spacing:.1em; }
@@ -108,5 +118,5 @@ tbody tr:last-child td { border-bottom:0; }
 tbody tr:hover { background:#f7f4eb; }
 footer { max-width:1280px; margin:0 auto; padding:24px 0; color:var(--muted); font-family:var(--font-geist-mono),monospace; font-size:8px; letter-spacing:.11em; }
 @media (max-width:820px) { .headerMeta{display:none}.hero{padding-top:54px}.hero::after{opacity:.25}.workspace{grid-template-columns:1fr;border:0}.controlPanel{border-right:0;border-bottom:1px solid var(--line);padding:36px 24px}.resultsPanel{padding:38px 24px 48px}.metricGrid{grid-template-columns:1fr 1fr}.metric{border-bottom:1px solid var(--line)}.metric:last-child{grid-column:1/-1;border-left:0;border-bottom:0}.ensembleGrid{grid-template-columns:1fr 1fr}.ensembleGrid article:nth-child(3){border-left:0;border-top:1px solid var(--line)}.ensembleGrid article:nth-child(4){border-top:1px solid var(--line)}footer{padding:22px 24px} }
-@media (max-width:520px) { .topbar{height:62px}.hero{padding:48px 24px}.hero h1{font-size:52px}.metricGrid{grid-template-columns:1fr}.metric,.metric:last-child{grid-column:auto;border-left:0}.distributionHeader{align-items:flex-start;gap:12px;flex-direction:column}.distributionHeader p{display:block;margin:6px 0 0}.distributionActions{width:100%;justify-content:space-between}.distributionHeader button{white-space:nowrap}.headwayLegend{justify-content:flex-start;gap:14px}.headwayChartWrap{padding-left:6px;padding-right:6px}.chartCaption span:last-child{display:none}.tableHeader p{display:none}.road{margin:0 12px}footer{align-items:flex-start;gap:10px;flex-direction:column} }
+@media (max-width:520px) { .topbar{height:62px}.hero{padding:48px 24px}.hero h1{font-size:52px}.metricGrid{grid-template-columns:1fr}.metric,.metric:last-child{grid-column:auto;border-left:0}.distributionHeader{align-items:flex-start;gap:12px;flex-direction:column}.distributionHeader p{display:block;margin:6px 0 0}.distributionActions{width:100%;justify-content:space-between}.distributionHeader button{white-space:nowrap}.headwayLegend{justify-content:flex-start;gap:14px}.headwayChartWrap{padding-left:6px;padding-right:6px}.vehicleHistogram{height:190px;padding-left:12px;padding-right:12px;gap:4px}.vehicleHistLabel{font-size:6px}.chartCaption span:last-child{display:none}.tableHeader p{display:none}.road{margin:0 12px}footer{align-items:flex-start;gap:10px;flex-direction:column} }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after{scroll-behavior:auto!important;transition:none!important} }
