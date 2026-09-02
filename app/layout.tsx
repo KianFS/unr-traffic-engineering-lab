@@ -13,17 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Flow Lab — Vehicle Arrival Simulator",
-  description: "A polished stochastic traffic-arrival simulator for transportation engineering.",
+  title: "Traffic Engineering Lab — UNR Vehicle Arrival Simulator",
+  description: "A stochastic vehicle-arrival simulator for the Traffic Engineering Lab at UNR.",
   openGraph: {
-    title: "Flow Lab — Vehicle Arrival Simulator",
-    description: "Explore random vehicle arrivals, repeated simulations, and run-to-run distributions.",
+    title: "Traffic Engineering Lab — UNR",
+    description: "Explore random vehicle arrivals, repeated simulations, and traffic headway distributions.",
     images: ["https://flow-lab-traffic-simulator.kingkm.chatgpt.site/og.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Flow Lab — Vehicle Arrival Simulator",
-    description: "Explore random vehicle arrivals, repeated simulations, and run-to-run distributions.",
+    title: "Traffic Engineering Lab — UNR",
+    description: "Explore random vehicle arrivals, repeated simulations, and traffic headway distributions.",
     images: ["https://flow-lab-traffic-simulator.kingkm.chatgpt.site/og.png"],
   },
   icons: {

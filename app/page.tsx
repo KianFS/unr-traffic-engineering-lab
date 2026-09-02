@@ -255,9 +255,9 @@ export default function Home() {
   return (
     <main>
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Flow Lab home">
+        <a className="brand" href="#top" aria-label="Traffic Engineering Lab at UNR home">
           <span className="brandMark" aria-hidden="true"><i /><i /><i /></span>
-          <span>FLOW LAB</span>
+          <span>TRAFFIC ENGINEERING LAB <small>/ UNR</small></span>
         </a>
         <div className="headerMeta">
           <span className="statusDot" /> STOCHASTIC ARRIVAL MODEL
@@ -267,7 +267,7 @@ export default function Home() {
       </header>
 
       <section className="hero" id="top">
-        <div className="eyebrow">TRAFFIC FLOW ANALYSIS / POISSON PROCESS</div>
+        <div className="eyebrow">UNR / TRAFFIC FLOW ANALYSIS / POISSON PROCESS</div>
         <h1>Vehicle arrival<br /><em>simulator.</em></h1>
         <p className="heroCopy">Generate randomized vehicle headways from a traffic volume and observe arrivals until the simulation horizon is reached.</p>
       </section>
@@ -464,7 +464,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer><span>FLOW LAB / TRAFFIC ENGINEERING TOOLKIT</span><span>Independent exponential headways • Poisson arrivals</span></footer>
+      <footer><span>TRAFFIC ENGINEERING LAB / UNR</span><span>Independent exponential headways • Poisson arrivals</span></footer>
     </main>
   );
 }
