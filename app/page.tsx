@@ -4,7 +4,19 @@ import { useMemo, useState } from "react";
 
 type Vehicle = { id: number; headway: number; arrival: number };
 type RunSummary = { run: number; vehicleCount: number; meanHeadway: number };
-type BatchResult = { summaries: RunSummary[]; lastVehicles: Vehicle[] };
+type HeadwayBin = {
+  from: number;
+  to: number | null;
+  count: number;
+  observedPercent: number;
+  theoreticalPercent: number;
+};
+type BatchResult = {
+  summaries: RunSummary[];
+  lastVehicles: Vehicle[];
+  headwayBins: HeadwayBin[];
+  totalHeadways: number;
+};
 
 const DEFAULT_VOLUME = 500;
 const DEFAULT_DURATION = 1;
@@ -28,7 +40,13 @@ function seededRandom(seed: number) {
   };
 }
 
-function simulateRun(volume: number, hours: number, random: () => number, keepVehicles: boolean) {
+function simulateRun(
+  volume: number,
+  hours: number,
+  random: () => number,
+  keepVehicles: boolean,
+  recordHeadway: (headway: number) => void,
+) {
   const vehicles: Vehicle[] = [];
   const horizon = hours * 3600;
   let arrival = 0;
@@ -43,6 +61,7 @@ function simulateRun(volume: number, hours: number, random: () => number, keepVe
     arrival += headway;
     vehicleCount += 1;
     totalHeadway += headway;
+    recordHeadway(headway);
     if (keepVehicles) vehicles.push({ id: vehicleCount, headway, arrival });
   }
 
@@ -57,35 +76,41 @@ function simulateBatch(
 ): BatchResult {
   const summaries: RunSummary[] = [];
   let lastVehicles: Vehicle[] = [];
+  const theoreticalMean = 3600 / volume;
+  const headwayBinWidth = theoreticalMean / 2;
+  const headwayCounts = Array.from({ length: 12 }, () => 0);
+  let totalHeadways = 0;
+
+  const recordHeadway = (headway: number) => {
+    const index = Math.min(headwayCounts.length - 1, Math.floor(headway / headwayBinWidth));
+    headwayCounts[index] += 1;
+    totalHeadways += 1;
+  };
 
   for (let run = 1; run <= numberOfRuns; run += 1) {
-    const result = simulateRun(volume, hours, random, run === numberOfRuns);
+    const result = simulateRun(volume, hours, random, run === numberOfRuns, recordHeadway);
     summaries.push({ run, vehicleCount: result.vehicleCount, meanHeadway: result.meanHeadway });
     if (run === numberOfRuns) lastVehicles = result.vehicles;
   }
 
-  return { summaries, lastVehicles };
-}
-
-function makeHistogram(summaries: RunSummary[]) {
-  const counts = summaries.map((item) => item.vehicleCount);
-  if (!counts.length) return [];
-  const minimum = Math.min(...counts);
-  const maximum = Math.max(...counts);
-  const targetBins = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(counts.length))));
-  const width = Math.max(1, Math.ceil((maximum - minimum + 1) / targetBins));
-  const binCount = Math.floor((maximum - minimum) / width) + 1;
-  const bins = Array.from({ length: binCount }, (_, index) => ({
-    from: minimum + index * width,
-    to: Math.min(maximum, minimum + (index + 1) * width - 1),
-    count: 0,
-  }));
-
-  counts.forEach((count) => {
-    const index = Math.min(bins.length - 1, Math.floor((count - minimum) / width));
-    bins[index].count += 1;
+  const headwayBins = headwayCounts.map((count, index) => {
+    const from = index * headwayBinWidth;
+    const to = index === headwayCounts.length - 1 ? null : (index + 1) * headwayBinWidth;
+    const theoreticalPercent = 100 * (
+      to === null
+        ? Math.exp(-from / theoreticalMean)
+        : Math.exp(-from / theoreticalMean) - Math.exp(-to / theoreticalMean)
+    );
+    return {
+      from,
+      to,
+      count,
+      observedPercent: totalHeadways ? (count / totalHeadways) * 100 : 0,
+      theoreticalPercent,
+    };
   });
-  return bins;
+
+  return { summaries, lastVehicles, headwayBins, totalHeadways };
 }
 
 export default function Home() {
@@ -122,8 +147,25 @@ export default function Home() {
     };
   }, [batch, resultInputs]);
 
-  const histogram = useMemo(() => makeHistogram(batch.summaries), [batch.summaries]);
-  const maximumFrequency = Math.max(1, ...histogram.map((bin) => bin.count));
+  const chart = useMemo(() => {
+    const maximumPercent = Math.max(
+      1,
+      ...batch.headwayBins.flatMap((bin) => [bin.observedPercent, bin.theoreticalPercent]),
+    );
+    const yMaximum = Math.ceil((maximumPercent * 1.12) / 5) * 5;
+    const left = 62;
+    const top = 22;
+    const plotWidth = 714;
+    const plotHeight = 228;
+    const baseline = top + plotHeight;
+    const slot = plotWidth / batch.headwayBins.length;
+    const y = (percent: number) => baseline - (percent / yMaximum) * plotHeight;
+    const theoreticalPoints = batch.headwayBins
+      .map((bin, index) => `${left + index * slot + slot / 2},${y(bin.theoreticalPercent)}`)
+      .join(" ");
+    const gridValues = Array.from({ length: 5 }, (_, index) => (yMaximum / 4) * index);
+    return { left, plotWidth, baseline, slot, y, theoreticalPoints, gridValues };
+  }, [batch.headwayBins]);
 
   const runSimulation = () => {
     const safeVolume = Math.min(5000, Math.max(1, Number(volume) || 1));
@@ -161,6 +203,26 @@ export default function Home() {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `traffic-arrivals-batch-${batchNumber}-summary.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadHeadwayCsv = () => {
+    const rows = [
+      "headway_from_seconds,headway_to_seconds,observed_count,observed_percent,theoretical_percent",
+      ...batch.headwayBins.map((bin) => [
+        bin.from.toFixed(3),
+        bin.to === null ? "infinity" : bin.to.toFixed(3),
+        bin.count,
+        bin.observedPercent.toFixed(4),
+        bin.theoreticalPercent.toFixed(4),
+      ].join(",")),
+    ];
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `traffic-arrivals-batch-${batchNumber}-headway-distribution.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -260,21 +322,66 @@ export default function Home() {
 
           <div className="distributionCard">
             <div className="distributionHeader">
-              <div><span>VEHICLE COUNT DISTRIBUTION</span><p>Frequency of outcomes across {resultInputs.runs} independent runs</p></div>
-              <button type="button" onClick={downloadBatchCsv}>Export batch CSV ↓</button>
+              <div>
+                <span>HEADWAY DISTRIBUTION — ALL RUNS</span>
+                <p>{batch.totalHeadways.toLocaleString()} accepted headways pooled from {resultInputs.runs} runs</p>
+              </div>
+              <div className="distributionActions">
+                <button type="button" onClick={downloadHeadwayCsv}>Chart data ↓</button>
+                <button type="button" onClick={downloadBatchCsv}>Run summary ↓</button>
+              </div>
             </div>
-            <div className="histogram" role="img" aria-label={`Histogram of vehicle counts from ${resultInputs.runs} simulation runs`}>
-              {histogram.map((bin) => (
-                <div className="histColumn" key={`${bin.from}-${bin.to}`}>
-                  <span className="histFrequency">{bin.count}</span>
-                  <div className="histTrack">
-                    <div className="histBar" style={{ height: `${Math.max(7, (bin.count / maximumFrequency) * 100)}%` }} />
-                  </div>
-                  <span className="histLabel">{bin.from === bin.to ? bin.from : `${bin.from}–${bin.to}`}</span>
-                </div>
-              ))}
+            <div className="headwayLegend" aria-hidden="true">
+              <span><i className="observedSwatch" />Observed simulation</span>
+              <span><i className="theorySwatch" />Theoretical exponential</span>
             </div>
-            <div className="chartCaption"><span>Vehicle count per run →</span><span>Each bar shows number of runs</span></div>
+            <div className="headwayChartWrap">
+              <svg className="headwayChart" viewBox="0 0 800 315" role="img" aria-labelledby="headway-chart-title headway-chart-description">
+                <title id="headway-chart-title">Observed and theoretical headway distribution</title>
+                <desc id="headway-chart-description">Orange bars show the percentage of simulated headways in each interval. The green line shows the exponential distribution predicted by the model.</desc>
+
+                {chart.gridValues.map((value) => {
+                  const gridY = chart.y(value);
+                  return (
+                    <g key={value}>
+                      <line className="chartGrid" x1={chart.left} y1={gridY} x2={chart.left + chart.plotWidth} y2={gridY} />
+                      <text className="chartTick" x={chart.left - 12} y={gridY + 3} textAnchor="end">{value.toFixed(0)}%</text>
+                    </g>
+                  );
+                })}
+
+                {batch.headwayBins.map((bin, index) => {
+                  const x = chart.left + index * chart.slot + 5;
+                  const barY = chart.y(bin.observedPercent);
+                  const label = bin.to === null ? `>${bin.from.toFixed(1)}` : `${bin.from.toFixed(1)}–${bin.to.toFixed(1)}`;
+                  return (
+                    <g key={`${bin.from}-${bin.to ?? "plus"}`}>
+                      <rect className="headwayBar" x={x} y={barY} width={Math.max(4, chart.slot - 10)} height={chart.baseline - barY}>
+                        <title>{label} seconds: {bin.observedPercent.toFixed(2)}% observed ({bin.count.toLocaleString()} headways)</title>
+                      </rect>
+                      <text className="chartTick xTick" x={x + (chart.slot - 10) / 2} y={chart.baseline + 19} textAnchor="middle">{label}</text>
+                    </g>
+                  );
+                })}
+
+                <polyline className="theoryLine" points={chart.theoreticalPoints} />
+                {batch.headwayBins.map((bin, index) => (
+                  <circle
+                    className="theoryPoint"
+                    key={`theory-${index}`}
+                    cx={chart.left + index * chart.slot + chart.slot / 2}
+                    cy={chart.y(bin.theoreticalPercent)}
+                    r="3.5"
+                  >
+                    <title>{bin.theoreticalPercent.toFixed(2)}% theoretical probability</title>
+                  </circle>
+                ))}
+                <line className="chartAxis" x1={chart.left} y1={chart.baseline} x2={chart.left + chart.plotWidth} y2={chart.baseline} />
+                <text className="axisTitle" x={chart.left + chart.plotWidth / 2} y="306" textAnchor="middle">HEADWAY INTERVAL (SECONDS)</text>
+                <text className="axisTitle" transform="translate(15 136) rotate(-90)" textAnchor="middle">RELATIVE FREQUENCY</text>
+              </svg>
+            </div>
+            <div className="chartCaption"><span>Orange bars: observed accepted headways</span><span>Acid line: expected exponential probabilities</span></div>
           </div>
 
           <div className="roadCard" aria-label="Arrival timeline visualization">
