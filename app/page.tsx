@@ -324,17 +324,31 @@ export default function Home() {
     const includesGapAcceptance = gapStats !== null;
     const rows = [
       includesGapAcceptance
-        ? "vehicle_id,headway_seconds,minor_vehicles_accepted,arrival_seconds,arrival_time"
+        ? "batch,simulation_run,conflicting_vehicle_id,headway_seconds,minor_vehicles_accepted,gap_start_seconds,gap_end_seconds,gap_end_time,critical_gap_seconds,follow_up_time_seconds,usable_gap"
         : "vehicle_id,headway_seconds,arrival_seconds,arrival_time",
       ...vehicles.map((item) => includesGapAcceptance
-        ? `${item.id},${item.headway.toFixed(3)},${item.minorVehicles},${item.arrival.toFixed(3)},${formatClock(item.arrival)}`
+        ? [
+          batchNumber,
+          resultInputs.runs,
+          item.id,
+          item.headway.toFixed(3),
+          item.minorVehicles,
+          (item.arrival - item.headway).toFixed(3),
+          item.arrival.toFixed(3),
+          formatClock(item.arrival),
+          resultInputs.criticalGap!.toFixed(3),
+          resultInputs.followUpTime!.toFixed(3),
+          item.minorVehicles > 0 ? "yes" : "no",
+        ].join(",")
         : `${item.id},${item.headway.toFixed(3)},${item.arrival.toFixed(3)},${formatClock(item.arrival)}`),
     ];
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `traffic-arrivals-batch-${batchNumber}-last-run.csv`;
+    anchor.download = includesGapAcceptance
+      ? `traffic-gap-capacity-batch-${batchNumber}-run-${resultInputs.runs}.csv`
+      : `traffic-arrivals-batch-${batchNumber}-last-run.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -518,26 +532,30 @@ export default function Home() {
                 </div>
                 <p>v<sub>c</sub> = {resultInputs.volume.toLocaleString()} vph · t<sub>c</sub> = {resultInputs.criticalGap!.toFixed(1)} s · t<sub>f</sub> = {resultInputs.followUpTime!.toFixed(1)} s</p>
               </div>
+              <div className="capacityScope">
+                <strong>What the capacity numbers represent</strong>
+                <p><b>Harders capacity</b> is one theoretical hourly rate and does not belong to a single run. <b>Simulated rate</b> and <b>usable gaps</b> pool all {resultInputs.runs} runs. <b>Average accepted/run</b> is the mean for one run, calculated from all {resultInputs.runs} runs.</p>
+              </div>
               <div className="capacityMetrics">
                 <article className="capacityPrimary">
-                  <span>Harders theoretical capacity</span>
+                  <span>Theory · independent of run count</span>
                   <strong>{gapStats.theoreticalCapacity.toFixed(1)}<small> veh/h</small></strong>
-                  <p>Maximum minor-stream service rate under continuous demand</p>
+                  <p>Harders theoretical minor-stream capacity</p>
                 </article>
                 <article>
-                  <span>Simulated service rate</span>
+                  <span>All {resultInputs.runs} runs · pooled rate</span>
                   <strong>{gapStats.simulatedCapacity.toFixed(1)}<small> veh/h</small></strong>
-                  <p>{gapStats.relativeDifference >= 0 ? "+" : ""}{gapStats.relativeDifference.toFixed(1)}% versus Harders</p>
+                  <p>Simulated service rate · {gapStats.relativeDifference >= 0 ? "+" : ""}{gapStats.relativeDifference.toFixed(1)}% vs. theory</p>
                 </article>
                 <article>
-                  <span>Average accepted / run</span>
+                  <span>One-run mean · across {resultInputs.runs} runs</span>
                   <strong>{gapStats.averageMinorVehicles.toFixed(1)}<small> veh</small></strong>
-                  <p>{batch.totalMinorVehicles.toLocaleString()} across all runs</p>
+                  <p>Average accepted/run · {batch.totalMinorVehicles.toLocaleString()} total</p>
                 </article>
                 <article>
-                  <span>Usable conflicting gaps</span>
+                  <span>All {resultInputs.runs} runs · pooled gaps</span>
                   <strong>{gapStats.usableGapPercent.toFixed(1)}<small>%</small></strong>
-                  <p>{batch.totalUsableGaps.toLocaleString()} gaps ≥ t<sub>c</sub></p>
+                  <p>Usable gaps · {batch.totalUsableGaps.toLocaleString()} gaps ≥ t<sub>c</sub></p>
                 </article>
               </div>
               <div className="capacityMethod">
@@ -624,7 +642,7 @@ export default function Home() {
                 <p>Run-to-run variation in the number of completed arrivals</p>
               </div>
               <div className="distributionActions">
-                <button type="button" onClick={downloadBatchCsv}>Run summary ↓</button>
+                <button type="button" onClick={downloadBatchCsv}>All-runs summary CSV ↓</button>
               </div>
             </div>
             <div className="vehicleHistogram" role="img" aria-label={`Histogram of vehicle counts from ${resultInputs.runs} simulation runs`}>
@@ -658,12 +676,15 @@ export default function Home() {
 
           <div className="tableBlock">
             <div className="tableHeader">
-              <div><span>LAST RUN ARRIVAL LOG</span><p>First five shown · CSV includes every generated gap</p></div>
-              <button type="button" onClick={downloadCsv} disabled={!vehicles.length}>Export CSV ↓</button>
+              <div>
+                <span>{gapStats ? "LAST RUN HEADWAY & CAPACITY LOG" : "LAST RUN ARRIVAL LOG"}</span>
+                <p>Run {resultInputs.runs} of {resultInputs.runs} · first five shown · CSV includes every headway in this run</p>
+              </div>
+              <button type="button" onClick={downloadCsv} disabled={!vehicles.length}>{gapStats ? "Last-run gaps CSV ↓" : "Export CSV ↓"}</button>
             </div>
             <div className="tableScroll">
               <table>
-                <thead><tr><th>Vehicle</th><th>Headway (s)</th>{gapStats && <th>Minor veh. accepted</th>}<th>Arrival (s)</th><th>Clock time</th></tr></thead>
+                <thead><tr><th>Vehicle</th><th>Headway (s)</th>{gapStats && <th>Minor veh. accepted in this headway</th>}<th>Arrival (s)</th><th>Clock time</th></tr></thead>
                 <tbody>
                   {vehicles.slice(0, 5).map((vehicle) => (
                     <tr key={vehicle.id}><td>#{String(vehicle.id).padStart(3, "0")}</td><td>{vehicle.headway.toFixed(3)}</td>{gapStats && <td>{vehicle.minorVehicles}</td>}<td>{vehicle.arrival.toFixed(3)}</td><td>{formatClock(vehicle.arrival)}</td></tr>

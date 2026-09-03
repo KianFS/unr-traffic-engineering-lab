@@ -73,6 +73,10 @@ button { cursor:pointer; }
 .capacityHeader>div>span { color:var(--orange); font-family:var(--font-geist-mono),monospace; font-size:11px; font-weight:700; }
 .capacityHeader h2 { margin:0; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }
 .capacityHeader p { margin:0; color:#b9c7c3; font-family:var(--font-geist-mono),monospace; font-size:9px; line-height:1.5; text-align:right; }
+.capacityScope { padding:15px 22px; border-bottom:1px solid #34504d; background:#102f2c; }
+.capacityScope strong { display:block; margin-bottom:6px; color:var(--acid); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+.capacityScope p { margin:0; color:#c4d0cc; font-size:10px; line-height:1.6; }
+.capacityScope b { color:var(--white); }
 .capacityMetrics { display:grid; grid-template-columns:1.3fr repeat(3,1fr); }
 .capacityMetrics article { min-height:138px; padding:23px 20px; border-left:1px solid #34504d; }
 .capacityMetrics article:first-child { border-left:0; }
