@@ -1,9 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  hardersCapacity,
+  vehiclesAcceptedInGap,
+  type GapAcceptanceParameters,
+} from "../lib/traffic";
 
-type Vehicle = { id: number; headway: number; arrival: number };
-type RunSummary = { run: number; vehicleCount: number; meanHeadway: number };
+type Vehicle = { id: number; headway: number; arrival: number; minorVehicles: number };
+type RunSummary = {
+  run: number;
+  vehicleCount: number;
+  meanHeadway: number;
+  minorVehicleCount: number;
+  usableGapCount: number;
+};
 type HeadwayBin = {
   from: number;
   to: number | null;
@@ -16,6 +27,16 @@ type BatchResult = {
   lastVehicles: Vehicle[];
   headwayBins: HeadwayBin[];
   totalHeadways: number;
+  totalMinorVehicles: number;
+  totalUsableGaps: number;
+};
+
+type ResultInputs = {
+  volume: number;
+  duration: number;
+  runs: number;
+  criticalGap: number | null;
+  followUpTime: number | null;
 };
 
 const DEFAULT_VOLUME = 500;
@@ -46,12 +67,15 @@ function simulateRun(
   random: () => number,
   keepVehicles: boolean,
   recordHeadway: (headway: number) => void,
+  gapAcceptance: GapAcceptanceParameters | null,
 ) {
   const vehicles: Vehicle[] = [];
   const horizon = hours * 3600;
   let arrival = 0;
   let vehicleCount = 0;
   let totalHeadway = 0;
+  let minorVehicleCount = 0;
+  let usableGapCount = 0;
 
   while (true) {
     // Exponential headways model a Poisson arrival process.
@@ -62,10 +86,21 @@ function simulateRun(
     vehicleCount += 1;
     totalHeadway += headway;
     recordHeadway(headway);
-    if (keepVehicles) vehicles.push({ id: vehicleCount, headway, arrival });
+    const minorVehicles = gapAcceptance
+      ? vehiclesAcceptedInGap(headway, gapAcceptance.criticalGap, gapAcceptance.followUpTime)
+      : 0;
+    minorVehicleCount += minorVehicles;
+    if (minorVehicles > 0) usableGapCount += 1;
+    if (keepVehicles) vehicles.push({ id: vehicleCount, headway, arrival, minorVehicles });
   }
 
-  return { vehicles, vehicleCount, meanHeadway: vehicleCount ? totalHeadway / vehicleCount : 0 };
+  return {
+    vehicles,
+    vehicleCount,
+    meanHeadway: vehicleCount ? totalHeadway / vehicleCount : 0,
+    minorVehicleCount,
+    usableGapCount,
+  };
 }
 
 function simulateBatch(
@@ -73,6 +108,7 @@ function simulateBatch(
   hours: number,
   numberOfRuns: number,
   random = Math.random,
+  gapAcceptance: GapAcceptanceParameters | null = null,
 ): BatchResult {
   const summaries: RunSummary[] = [];
   let lastVehicles: Vehicle[] = [];
@@ -80,6 +116,8 @@ function simulateBatch(
   const headwayBinWidth = theoreticalMean / 2;
   const headwayCounts = Array.from({ length: 12 }, () => 0);
   let totalHeadways = 0;
+  let totalMinorVehicles = 0;
+  let totalUsableGaps = 0;
 
   const recordHeadway = (headway: number) => {
     const index = Math.min(headwayCounts.length - 1, Math.floor(headway / headwayBinWidth));
@@ -88,8 +126,16 @@ function simulateBatch(
   };
 
   for (let run = 1; run <= numberOfRuns; run += 1) {
-    const result = simulateRun(volume, hours, random, run === numberOfRuns, recordHeadway);
-    summaries.push({ run, vehicleCount: result.vehicleCount, meanHeadway: result.meanHeadway });
+    const result = simulateRun(volume, hours, random, run === numberOfRuns, recordHeadway, gapAcceptance);
+    summaries.push({
+      run,
+      vehicleCount: result.vehicleCount,
+      meanHeadway: result.meanHeadway,
+      minorVehicleCount: result.minorVehicleCount,
+      usableGapCount: result.usableGapCount,
+    });
+    totalMinorVehicles += result.minorVehicleCount;
+    totalUsableGaps += result.usableGapCount;
     if (run === numberOfRuns) lastVehicles = result.vehicles;
   }
 
@@ -110,7 +156,14 @@ function simulateBatch(
     };
   });
 
-  return { summaries, lastVehicles, headwayBins, totalHeadways };
+  return {
+    summaries,
+    lastVehicles,
+    headwayBins,
+    totalHeadways,
+    totalMinorVehicles,
+    totalUsableGaps,
+  };
 }
 
 function makeVehicleHistogram(summaries: RunSummary[]) {
@@ -138,7 +191,16 @@ export default function Home() {
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
   const [numberOfRuns, setNumberOfRuns] = useState(DEFAULT_RUNS);
-  const [resultInputs, setResultInputs] = useState({ volume: DEFAULT_VOLUME, duration: DEFAULT_DURATION, runs: DEFAULT_RUNS });
+  const [criticalGap, setCriticalGap] = useState("");
+  const [followUpTime, setFollowUpTime] = useState("");
+  const [gapError, setGapError] = useState("");
+  const [resultInputs, setResultInputs] = useState<ResultInputs>({
+    volume: DEFAULT_VOLUME,
+    duration: DEFAULT_DURATION,
+    runs: DEFAULT_RUNS,
+    criticalGap: null,
+    followUpTime: null,
+  });
   const [batch, setBatch] = useState<BatchResult>(() => simulateBatch(DEFAULT_VOLUME, DEFAULT_DURATION, DEFAULT_RUNS, seededRandom(2026)));
   const [batchNumber, setBatchNumber] = useState(1);
 
@@ -189,23 +251,84 @@ export default function Home() {
   }, [batch.headwayBins]);
   const vehicleHistogram = useMemo(() => makeVehicleHistogram(batch.summaries), [batch.summaries]);
   const maximumVehicleFrequency = Math.max(1, ...vehicleHistogram.map((bin) => bin.count));
+  const gapStats = useMemo(() => {
+    if (resultInputs.criticalGap === null || resultInputs.followUpTime === null) return null;
+    const theoreticalCapacity = hardersCapacity(
+      resultInputs.volume,
+      resultInputs.criticalGap,
+      resultInputs.followUpTime,
+    );
+    const modeledHours = resultInputs.duration * resultInputs.runs;
+    const simulatedCapacity = modeledHours ? batch.totalMinorVehicles / modeledHours : 0;
+    return {
+      theoreticalCapacity,
+      simulatedCapacity,
+      averageMinorVehicles: batch.totalMinorVehicles / resultInputs.runs,
+      usableGapPercent: batch.totalHeadways
+        ? (batch.totalUsableGaps / batch.totalHeadways) * 100
+        : 0,
+      relativeDifference: theoreticalCapacity
+        ? ((simulatedCapacity - theoreticalCapacity) / theoreticalCapacity) * 100
+        : 0,
+    };
+  }, [batch, resultInputs]);
 
   const runSimulation = () => {
     const safeVolume = Math.min(5000, Math.max(1, Number(volume) || 1));
     const safeDuration = Math.min(24, Math.max(0.1, Number(duration) || 0.1));
     const safeRuns = Math.min(200, Math.max(1, Math.round(Number(numberOfRuns) || 1)));
+    const hasCriticalGap = criticalGap.trim() !== "";
+    const hasFollowUpTime = followUpTime.trim() !== "";
+    if (hasCriticalGap !== hasFollowUpTime) {
+      setGapError("Enter both t_c and t_f, or leave both blank to run arrivals only.");
+      return;
+    }
+
+    let gapAcceptance: GapAcceptanceParameters | null = null;
+    if (hasCriticalGap && hasFollowUpTime) {
+      const parsedCriticalGap = Number(criticalGap);
+      const parsedFollowUpTime = Number(followUpTime);
+      if (
+        !Number.isFinite(parsedCriticalGap) ||
+        !Number.isFinite(parsedFollowUpTime) ||
+        parsedCriticalGap <= 0 ||
+        parsedFollowUpTime <= 0 ||
+        parsedCriticalGap > 120 ||
+        parsedFollowUpTime > 120
+      ) {
+        setGapError("Critical gap and follow-up time must each be between 0.1 and 120 seconds.");
+        return;
+      }
+      gapAcceptance = {
+        criticalGap: parsedCriticalGap,
+        followUpTime: parsedFollowUpTime,
+      };
+    }
+
+    setGapError("");
     setVolume(safeVolume);
     setDuration(safeDuration);
     setNumberOfRuns(safeRuns);
-    setResultInputs({ volume: safeVolume, duration: safeDuration, runs: safeRuns });
-    setBatch(simulateBatch(safeVolume, safeDuration, safeRuns));
+    setResultInputs({
+      volume: safeVolume,
+      duration: safeDuration,
+      runs: safeRuns,
+      criticalGap: gapAcceptance?.criticalGap ?? null,
+      followUpTime: gapAcceptance?.followUpTime ?? null,
+    });
+    setBatch(simulateBatch(safeVolume, safeDuration, safeRuns, Math.random, gapAcceptance));
     setBatchNumber((current) => current + 1);
   };
 
   const downloadCsv = () => {
+    const includesGapAcceptance = gapStats !== null;
     const rows = [
-      "vehicle_id,headway_seconds,arrival_seconds,arrival_time",
-      ...vehicles.map((item) => `${item.id},${item.headway.toFixed(3)},${item.arrival.toFixed(3)},${formatClock(item.arrival)}`),
+      includesGapAcceptance
+        ? "vehicle_id,headway_seconds,minor_vehicles_accepted,arrival_seconds,arrival_time"
+        : "vehicle_id,headway_seconds,arrival_seconds,arrival_time",
+      ...vehicles.map((item) => includesGapAcceptance
+        ? `${item.id},${item.headway.toFixed(3)},${item.minorVehicles},${item.arrival.toFixed(3)},${formatClock(item.arrival)}`
+        : `${item.id},${item.headway.toFixed(3)},${item.arrival.toFixed(3)},${formatClock(item.arrival)}`),
     ];
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -217,9 +340,14 @@ export default function Home() {
   };
 
   const downloadBatchCsv = () => {
+    const includesGapAcceptance = gapStats !== null;
     const rows = [
-      "run,vehicle_count,mean_headway_seconds",
-      ...batch.summaries.map((item) => `${item.run},${item.vehicleCount},${item.meanHeadway.toFixed(3)}`),
+      includesGapAcceptance
+        ? "run,conflicting_vehicle_count,mean_headway_seconds,usable_gap_count,minor_vehicles_accepted"
+        : "run,vehicle_count,mean_headway_seconds",
+      ...batch.summaries.map((item) => includesGapAcceptance
+        ? `${item.run},${item.vehicleCount},${item.meanHeadway.toFixed(3)},${item.usableGapCount},${item.minorVehicleCount}`
+        : `${item.run},${item.vehicleCount},${item.meanHeadway.toFixed(3)}`),
     ];
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -303,6 +431,44 @@ export default function Home() {
             <span className="fieldNote">1–200 independent repetitions</span>
           </label>
 
+          <fieldset className="optionalModule">
+            <legend>Optional gap-acceptance analysis</legend>
+            <p>The entered traffic volume is also used as the conflicting flow, v<sub>c</sub>.</p>
+            <label className="field compactField">
+              <span className="fieldLabel">Critical gap, t<sub>c</sub></span>
+              <span className="inputWrap">
+                <input
+                  type="number"
+                  min="0.1"
+                  max="120"
+                  step="0.1"
+                  placeholder="Optional"
+                  value={criticalGap}
+                  onChange={(event) => setCriticalGap(event.target.value)}
+                />
+                <b>sec</b>
+              </span>
+              <span className="fieldNote">Minimum gap needed by the first minor-stream vehicle</span>
+            </label>
+            <label className="field compactField">
+              <span className="fieldLabel">Follow-up time, t<sub>f</sub></span>
+              <span className="inputWrap">
+                <input
+                  type="number"
+                  min="0.1"
+                  max="120"
+                  step="0.1"
+                  placeholder="Optional"
+                  value={followUpTime}
+                  onChange={(event) => setFollowUpTime(event.target.value)}
+                />
+                <b>sec</b>
+              </span>
+              <span className="fieldNote">Additional time required by each following vehicle</span>
+            </label>
+            {gapError && <p className="inputError" role="alert">{gapError}</p>}
+          </fieldset>
+
           <button className="runButton" type="button" onClick={runSimulation}>Run simulation batch <span aria-hidden="true">→</span></button>
 
           <div className="methodNote">
@@ -342,6 +508,51 @@ export default function Home() {
             <article><span>Standard deviation</span><strong>{stats.standardDeviation.toFixed(2)}</strong></article>
             <article><span>95% CI for mean</span><strong>{(stats.averageVehicles - stats.confidenceMargin).toFixed(1)}–{(stats.averageVehicles + stats.confidenceMargin).toFixed(1)}</strong></article>
           </div>
+
+          {gapStats && (
+            <section className="capacityCard" aria-labelledby="capacity-heading">
+              <div className="capacityHeader">
+                <div>
+                  <span>03</span>
+                  <h2 id="capacity-heading">Harders’ gap-acceptance capacity</h2>
+                </div>
+                <p>v<sub>c</sub> = {resultInputs.volume.toLocaleString()} vph · t<sub>c</sub> = {resultInputs.criticalGap!.toFixed(1)} s · t<sub>f</sub> = {resultInputs.followUpTime!.toFixed(1)} s</p>
+              </div>
+              <div className="capacityMetrics">
+                <article className="capacityPrimary">
+                  <span>Harders theoretical capacity</span>
+                  <strong>{gapStats.theoreticalCapacity.toFixed(1)}<small> veh/h</small></strong>
+                  <p>Maximum minor-stream service rate under continuous demand</p>
+                </article>
+                <article>
+                  <span>Simulated service rate</span>
+                  <strong>{gapStats.simulatedCapacity.toFixed(1)}<small> veh/h</small></strong>
+                  <p>{gapStats.relativeDifference >= 0 ? "+" : ""}{gapStats.relativeDifference.toFixed(1)}% versus Harders</p>
+                </article>
+                <article>
+                  <span>Average accepted / run</span>
+                  <strong>{gapStats.averageMinorVehicles.toFixed(1)}<small> veh</small></strong>
+                  <p>{batch.totalMinorVehicles.toLocaleString()} across all runs</p>
+                </article>
+                <article>
+                  <span>Usable conflicting gaps</span>
+                  <strong>{gapStats.usableGapPercent.toFixed(1)}<small>%</small></strong>
+                  <p>{batch.totalUsableGaps.toLocaleString()} gaps ≥ t<sub>c</sub></p>
+                </article>
+              </div>
+              <div className="capacityMethod">
+                <div>
+                  <span>HARDERS’ MODEL</span>
+                  <code>c = v<sub>c</sub> · e<sup>−v<sub>c</sub>t<sub>c</sub>/3600</sup> / (1 − e<sup>−v<sub>c</sub>t<sub>f</sub>/3600</sup>)</code>
+                </div>
+                <div>
+                  <span>VEHICLES SERVED IN EACH GENERATED GAP h</span>
+                  <code>n(h) = 0 if h &lt; t<sub>c</sub>; otherwise 1 + floor((h − t<sub>c</sub>) / t<sub>f</sub>)</code>
+                </div>
+              </div>
+              <p className="capacityNote">Capacity assumes exponential conflicting-stream headways, consistent with the Poisson arrival model above, and continuous minor-stream demand.</p>
+            </section>
+          )}
 
           <div className="distributionCard">
             <div className="distributionHeader">
@@ -447,15 +658,15 @@ export default function Home() {
 
           <div className="tableBlock">
             <div className="tableHeader">
-              <div><span>LAST RUN ARRIVAL LOG</span><p>First five generated observations</p></div>
+              <div><span>LAST RUN ARRIVAL LOG</span><p>First five shown · CSV includes every generated gap</p></div>
               <button type="button" onClick={downloadCsv} disabled={!vehicles.length}>Export CSV ↓</button>
             </div>
             <div className="tableScroll">
               <table>
-                <thead><tr><th>Vehicle</th><th>Headway (s)</th><th>Arrival (s)</th><th>Clock time</th></tr></thead>
+                <thead><tr><th>Vehicle</th><th>Headway (s)</th>{gapStats && <th>Minor veh. accepted</th>}<th>Arrival (s)</th><th>Clock time</th></tr></thead>
                 <tbody>
                   {vehicles.slice(0, 5).map((vehicle) => (
-                    <tr key={vehicle.id}><td>#{String(vehicle.id).padStart(3, "0")}</td><td>{vehicle.headway.toFixed(3)}</td><td>{vehicle.arrival.toFixed(3)}</td><td>{formatClock(vehicle.arrival)}</td></tr>
+                    <tr key={vehicle.id}><td>#{String(vehicle.id).padStart(3, "0")}</td><td>{vehicle.headway.toFixed(3)}</td>{gapStats && <td>{vehicle.minorVehicles}</td>}<td>{vehicle.arrival.toFixed(3)}</td><td>{formatClock(vehicle.arrival)}</td></tr>
                   ))}
                 </tbody>
               </table>
